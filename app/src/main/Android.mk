@@ -6,10 +6,11 @@ $(warning mynative)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
+    cpp/drawer.cpp \
     cpp/main.cpp \
 
 LOCAL_MODULE := libmynative
-LOCAL_LDLIBS := -llog -landroid -lEGL -lGLESv1_CM
+LOCAL_LDLIBS := -llog -landroid -lEGL -lGLESv2 
 LOCAL_WHOLE_STATIC_LIBRARIES := libandroid_native_app_glue
 
 include $(BUILD_SHARED_LIBRARY)

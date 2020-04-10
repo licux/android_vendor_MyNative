@@ -23,49 +23,149 @@
 #include <jni.h>
 #include <cerrno>
 #include <cassert>
+#include <vector>
 
 #include <EGL/egl.h>
-#include <GLES/gl.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 #include <android/sensor.h>
 #include <android/log.h>
 #include <android_native_app_glue.h>
 
+#include "GLEngine.h"
+
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "native-activity", __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "native-activity", __VA_ARGS__))
+#define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "native-activity", __VA_ARGS__))
 
-/**
- * Our saved state data.
- */
-struct saved_state {
-    float angle;
-    int32_t x;
-    int32_t y;
-};
+extern void draw_triangle(GLEngine *engine);
+extern void draw_rectangle(GLEngine *engine);
+extern void draw_point(GLEngine *engine);
+extern void draw_qued(GLEngine *engine);
+extern void draw_move(GLEngine *engine);
 
-/**
- * Shared state for our app.
- */
-struct engine {
-    struct android_app* app;
+const GLchar *vertex_shader_source = 
+    "attribute mediump vec4 attr_pos;"
+    "attribute lowp vec4 attr_color;"
+    "varying lowp vec4 vary_color;"
+    "uniform mediump vec2 unif_pos;"
+    "void main() {"
+    "   gl_Position = attr_pos;"
+    // "   gl_Position.xy += unif_pos;"
+    "   vary_color = attr_color;"
+    "}";
 
-    ASensorManager* sensorManager;
-    const ASensor* accelerometerSensor;
-    ASensorEventQueue* sensorEventQueue;
+const GLchar *fragment_shader_source =
+    "uniform lowp vec4 unif_color;"
+    "varying lowp vec4 vary_color;"
+    "void main() {"
+    "   gl_FragColor = vary_color;"
+    "}";
 
-    int animating;
-    EGLDisplay display;
-    EGLSurface surface;
-    EGLContext context;
-    int32_t width;
-    int32_t height;
-    struct saved_state state;
-};
+static GLuint load_shader(GLenum type, const char** source){
+    GLuint shader = glCreateShader(type);
+    assert(glGetError() == GL_NO_ERROR);
+    assert(shader != 0);
+
+    glShaderSource(shader, 1, source, NULL);
+    glCompileShader(shader);
+
+    {
+        GLint compiled = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+        if(compiled == GL_FALSE){
+            GLint infoLen = 0;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+            if(infoLen > 1){
+                std::vector<char> buf(infoLen);
+                if(buf.capacity() > 0){
+                    glGetShaderInfoLog(shader, infoLen, NULL, buf.data());
+                    LOGE("Could not compile shader %d: %s\n", type, buf.data());
+                }
+            }
+        }
+    }
+
+    return shader;
+}
+
+static GLuint create_program(GLEngine *engine, const char** vertex_source, const char** fragmane_source){
+    engine->vertex_shader = load_shader(GL_VERTEX_SHADER, vertex_source);
+    engine->fragment_shader = load_shader(GL_FRAGMENT_SHADER, fragmane_source);
+    
+    GLenum program = glCreateProgram();
+    assert(program != 0);
+
+    glAttachShader(program, engine->vertex_shader);
+    assert(glGetError() == GL_NO_ERROR);
+    glAttachShader(program, engine->fragment_shader);
+    assert(glGetError() == GL_NO_ERROR);
+
+    glLinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    if(linkStatus != GL_TRUE){
+        GLint bufLength = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
+        if(bufLength > 1){
+            std::vector<char> buf(bufLength);
+            if(buf.capacity() > 0){
+                glGetProgramInfoLog(program, bufLength, NULL, buf.data());
+                LOGE("Could not link program: %s\n", buf.data());
+            }
+        }
+    }
+
+    engine->attr_pos = glGetAttribLocation(program, "attr_pos");
+    assert(engine->attr_pos >= 0);
+    engine->attr_color = glGetAttribLocation(program, "attr_color");
+    assert(engine->attr_color >= 0);
+    engine->unif_color = glGetUniformLocation(program, "unif_color");
+    assert(engine->unif_color >= 0);
+    engine->unif_pos = glGetUniformLocation(program, "unif_pos");
+    assert(engine->unif_posr >= 0);
+
+    GLfloat minmaxWidth[2] = { 0 };
+    glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, minmaxWidth);
+    const GLfloat minLineWidth = minmaxWidth[0];
+    const GLfloat maxLineWidth = minmaxWidth[1];
+    LOGI("Device Spec[%f <= width <= %f]", minLineWidth, maxLineWidth);
+    GLfloat minmaxPointSize[2] = { 0 };
+    glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, minmaxPointSize);
+    const GLfloat minPointSize = minmaxPointSize[0];
+    const GLfloat maxPointSize = minmaxPointSize[1];
+    LOGI("Device Spec[%f <= point size <= %f]", minPointSize, maxPointSize);
+    GLint vert_vectors = 0;
+    GLint frag_vectors = 0;
+    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &vert_vectors);
+    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &frag_vectors);
+    LOGI("MAX Uniform Vectors / Vert(%d) Frag(%d)", vert_vectors, frag_vectors);
+    GLint vary_vectors = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &vary_vectors);
+    LOGI("MAX Varying Vectors / %d", vary_vectors);
+
+    return program;
+}
+
+static void term_program(GLEngine* engine){
+    glUseProgram(0);
+
+    glDeleteProgram(engine->program);
+    assert(glGetError() == GL_NO_ERROR);
+
+    assert(glIsProgram(engine->program) == GL_FALSE);
+
+    glDeleteShader(engine->vertex_shader);
+    assert(glGetError() == GL_NO_ERROR);
+    glDeleteShader(engine->fragment_shader);
+    assert(glGetError() == GL_NO_ERROR);
+}
 
 /**
  * Initialize an EGL context for the current display.
  */
-static int engine_init_display(struct engine* engine) {
+static int engine_init_display(GLEngine* engine) {
     // initialize OpenGL ES and EGL
 
     /*
@@ -74,12 +174,17 @@ static int engine_init_display(struct engine* engine) {
      * component compatible with on-screen windows
      */
     const EGLint attribs[] = {
-            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
             EGL_BLUE_SIZE, 8,
             EGL_GREEN_SIZE, 8,
             EGL_RED_SIZE, 8,
             EGL_NONE
     };
+
+    const EGLint contextAttribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE
+	};
     EGLint w, h, format;
     EGLint numConfigs;
     EGLConfig config = nullptr;
@@ -127,7 +232,7 @@ static int engine_init_display(struct engine* engine) {
      * ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID. */
     eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
     surface = eglCreateWindowSurface(display, config, engine->app->window, nullptr);
-    context = eglCreateContext(display, config, nullptr, nullptr);
+    context = eglCreateContext(display, config,  EGL_NO_CONTEXT, contextAttribs);
 
     if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
         LOGW("Unable to eglMakeCurrent");
@@ -150,11 +255,13 @@ static int engine_init_display(struct engine* engine) {
         auto info = glGetString(name);
         LOGI("OpenGL Info: %s", info);
     }
-    // Initialize GL state.
-    glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
-    glEnable(GL_CULL_FACE);
-    glShadeModel(GL_SMOOTH);
-    glDisable(GL_DEPTH_TEST);
+    // // Initialize GL state.
+    // glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
+    // glEnable(GL_CULL_FACE);
+    // glShadeModel(GL_SMOOTH);
+    // glDisable(GL_DEPTH_TEST);
+    glViewport(0, 0, w, h);
+    engine->program = create_program(engine, &vertex_shader_source, &fragment_shader_source);
 
     return 0;
 }
@@ -162,24 +269,37 @@ static int engine_init_display(struct engine* engine) {
 /**
  * Just the current frame in the display.
  */
-static void engine_draw_frame(struct engine* engine) {
+static void engine_draw_frame(GLEngine* engine) {
     if (engine->display == nullptr) {
         // No display.
         return;
     }
 
     // Just fill the screen with a color.
-    glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
-                 ((float)engine->state.y)/engine->height, 1);
+    // glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
+    // //              ((float)engine->state.y)/engine->height, 1);
+    // glClearColor((GLfloat)(rand() % 256) / 255.0f, (GLfloat)(rand() % 256) / 255.0f, (GLfloat)(rand() % 256) / 255.0f, 1.0f);
+    // glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(engine->program);
+
+    glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnableVertexAttribArray(engine->attr_pos);
+    glEnableVertexAttribArray(engine->attr_color);
+
+    draw_triangle(engine);
+    
 
     eglSwapBuffers(engine->display, engine->surface);
 }
 
+
 /**
  * Tear down the EGL context currently associated with the display.
  */
-static void engine_term_display(struct engine* engine) {
+static void engine_term_display(GLEngine* engine) {
     if (engine->display != EGL_NO_DISPLAY) {
         eglMakeCurrent(engine->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (engine->context != EGL_NO_CONTEXT) {
@@ -190,6 +310,8 @@ static void engine_term_display(struct engine* engine) {
         }
         eglTerminate(engine->display);
     }
+
+
     engine->animating = 0;
     engine->display = EGL_NO_DISPLAY;
     engine->context = EGL_NO_CONTEXT;
@@ -200,7 +322,7 @@ static void engine_term_display(struct engine* engine) {
  * Process the next input event.
  */
 static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) {
-    auto* engine = (struct engine*)app->userData;
+    auto* engine = (GLEngine*)app->userData;
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
         engine->animating = 1;
         engine->state.x = AMotionEvent_getX(event, 0);
@@ -214,7 +336,7 @@ static int32_t engine_handle_input(struct android_app* app, AInputEvent* event) 
  * Process the next main command.
  */
 static void engine_handle_cmd(struct android_app* app, int32_t cmd) {
-    auto* engine = (struct engine*)app->userData;
+    auto* engine = (GLEngine*)app->userData;
     switch (cmd) {
         case APP_CMD_SAVE_STATE:
             // The system has asked us to save our current state.  Do so.
@@ -325,7 +447,7 @@ ASensorManager* AcquireASensorManagerInstance(android_app* app) {
  * event loop for receiving input events and doing other things.
  */
 void android_main(struct android_app* state) {
-    struct engine engine{};
+    GLEngine engine{};
 
     memset(&engine, 0, sizeof(engine));
     state->userData = &engine;
