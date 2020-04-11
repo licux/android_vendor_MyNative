@@ -1,7 +1,0 @@
-# ninja log v5
-0	986	1585775188	CMakeFiles/native_app_glue.dir/home/masaki/Android/Sdk/ndk/21.0.6113669/sources/android/native_app_glue/android_native_app_glue.c.o	f5089b39680cb18c
-0	1600	1585775189	CMakeFiles/native-activity.dir/main.cpp.o	4489d98188273e0c
-987	2097	1585775189	libnative_app_glue.a	502d33f411f144a4
-2097	2391	1585775189	/media/masaki/Android-emu/vendor/native-activity/app/build/intermediates/cmake/debug/obj/armeabi-v7a/libnative-activity.so	36a89899aceb6bc3
-1	49	1585775919	CMakeFiles/native-activity.dir/Resource.cpp.o	89de00bdb1d465f8
-49	73	1585775919	/media/masaki/Android-emu/vendor/native-activity/app/build/intermediates/cmake/debug/obj/armeabi-v7a/libnative-activity.so	32070b7d21a6ef0

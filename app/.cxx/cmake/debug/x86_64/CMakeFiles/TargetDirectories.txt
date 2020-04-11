@@ -1,4 +1,0 @@
-/media/masaki/Android-emu/vendor/native-activity/app/.cxx/cmake/debug/x86_64/CMakeFiles/rebuild_cache.dir
-/media/masaki/Android-emu/vendor/native-activity/app/.cxx/cmake/debug/x86_64/CMakeFiles/edit_cache.dir
-/media/masaki/Android-emu/vendor/native-activity/app/.cxx/cmake/debug/x86_64/CMakeFiles/native-activity.dir
-/media/masaki/Android-emu/vendor/native-activity/app/.cxx/cmake/debug/x86_64/CMakeFiles/native_app_glue.dir

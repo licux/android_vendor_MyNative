@@ -1,4 +1,0 @@
-#Thu Apr 02 06:18:40 JST 2020
-base.0=/media/masaki/Android-emu/vendor/native-activity/app/build/intermediates/dex/debug/mergeDexDebug/classes.dex
-path.0=classes.dex
-renamed.0=classes.dex
