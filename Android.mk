@@ -6,9 +6,16 @@ $(warning mynative)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := \
+    src/RawData.cpp \
     src/PngImage.cpp \
+    src/PkgImage.cpp \
+    src/KtxImage.cpp \
+    src/Matrix.cpp \
+    src/Sprite.cpp \
+    src/util.cpp \
     src/drawer.cpp \
     src/main.cpp \
+
 
 LOCAL_MODULE := libmynative
 LOCAL_LDLIBS := -llog -landroid -lEGL -lGLESv2  -lpng

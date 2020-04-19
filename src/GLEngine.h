@@ -37,6 +37,8 @@ public:
     GLuint vertex_shader;
     GLuint fragment_shader;
     GLuint program;
+    GLint unif_matrix;
+    GLint unif_uvmatrix;
     GLint attr_pos;
     GLint attr_color;
     GLint attr_uv;
@@ -44,6 +46,10 @@ public:
     GLuint texture_id;
     GLint unif_color;
     GLint unif_pos;
+    GLint unif_translate;
+    GLint unif_rotate;
+    GLint unif_scale;
+    GLfloat rotate;
     int32_t width;
     int32_t height;
     struct saved_state state;

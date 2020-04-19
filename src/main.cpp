@@ -36,6 +36,10 @@
 #include "GLEngine.h"
 #include "Resource.h"
 #include "PngImage.h"
+#include "PkgImage.h"
+#include "KtxImage.h"
+#include "Matrix.h"
+#include "util.h"
 
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "native-activity", __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "native-activity", __VA_ARGS__))
@@ -47,19 +51,31 @@ extern void draw_point(GLEngine *engine);
 extern void draw_qued(GLEngine *engine);
 extern void draw_move(GLEngine *engine);
 extern void draw_texture(GLEngine *engine);
+extern void draw_atlas(GLEngine *engine);
+extern void draw_matrix(GLEngine *engine);
+extern void draw_spritematrix(GLEngine *engine);
+extern void draw_spriteuvmatrix(GLEngine *engine);
 
 const GLchar *vertex_shader_source = 
+    "uniform mediump mat4 unif_translate;"
+    "uniform mediump mat4 unif_rotate;"
+    "uniform mediump mat4 unif_scale;"
+    "uniform mediump mat4 unif_matrix;"
+    "uniform mediump mat4 unif_uvmatrix;"
     "attribute mediump vec4 attr_pos;"
-    "attribute mediump vec2 attr_uv;"
+    // "attribute mediump vec2 attr_uv;"
+    "attribute mediump vec4 attr_uv;"
     // "attribute lowp vec4 attr_color;"
     // "varying lowp vec4 vary_color;"
     // "uniform mediump vec2 unif_pos;"
     "varying mediump vec2 vary_uv;"
     "void main() {"
-    "   gl_Position = attr_pos;"
+    // "    gl_Position = unif_translate * unif_rotate * unif_scale * attr_pos;"
+    "    gl_Position = unif_matrix * attr_pos;"
+    // "   gl_Position = attr_pos;"
     // "   gl_Position.xy += unif_pos;"
     // "   vary_color = attr_color;"
-    "   vary_uv = attr_uv;"
+    "   vary_uv = (unif_uvmatrix * attr_uv).xy;"
     "}";
 
 const GLchar *fragment_shader_source =
@@ -125,6 +141,17 @@ static GLuint create_program(GLEngine *engine, const char** vertex_source, const
         }
     }
 
+    engine->unif_translate = glGetUniformLocation(program, "unif_translate");
+    engine->unif_rotate = glGetUniformLocation(program, "unif_rotate");
+    engine->unif_scale = glGetUniformLocation(program, "unif_scale");
+    engine->rotate = 0;
+    assert(engine->unif_translate >= 0);
+    assert(engine->unif_rotate >= 0);
+    assert(engine->unif_scale >= 0);
+    engine->unif_matrix = glGetUniformLocation(program, "unif_matrix");
+    assert(engine->unif_matrix >= 0);
+    engine->unif_uvmatrix = glGetUniformLocation(program, "unif_uvmatrix");
+    assert(engine->unif_uvmatrix >= 0);
     engine->attr_pos = glGetAttribLocation(program, "attr_pos");
     assert(engine->attr_pos >= 0);
     engine->attr_uv = glGetAttribLocation(program, "attr_uv");
@@ -154,12 +181,37 @@ static GLuint create_program(GLEngine *engine, const char** vertex_source, const
 
         // Read png image
         {
-            PngImage image(engine->app->activity->assetManager, "texture_rgb_asymmetry.png");
+            PngImage image(engine->app->activity->assetManager, "textureatlas.png");
             assert(image);
 
             glTexImage2D(GL_TEXTURE_2D, 0, image.hasAlpha() ? GL_RGBA : GL_RGB, image.getWidth(), image.getHeight(), 0,
                 image.hasAlpha() ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, image.getData());
             assert(glGetError() == GL_NO_ERROR);
+        }
+
+        // Read pkg imag
+        {
+            PkgImage image(engine->app->activity->assetManager, "texture_rgb_512x512.pkm");
+
+            glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_ETC1_RGB8_OES, image.getWidth(), image.getHeight(), 0, image.getDataBytes(), image.getData());
+            assert(glGetError() == GL_NO_ERROR);
+        }
+
+        // Read ktx image
+        {
+            KtxImage image(engine->app->activity->assetManager, "texture_etc1_512x512.ktx");
+            int width = image.getWidth();
+            int height = image.getHeight();
+
+            for(int mipLevel = 0; mipLevel < image.getMipsLevel(); mipLevel++){
+                int image_size = image.getDataBytesTable()[mipLevel];
+                void* image_data = image.getDataTable()[mipLevel];
+                glCompressedTexImage2D(GL_TEXTURE_2D, mipLevel, image.getFormat(), width, height, 0, image_size, image_data);
+
+                width /= 2;
+                height /= 2;
+
+            }
         }
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -211,6 +263,7 @@ static void term_program(GLEngine* engine){
  */
 static int engine_init_display(GLEngine* engine) {
     // initialize OpenGL ES and EGL
+
 
     /*
      * Here specify the attributes of the desired configuration.
@@ -299,11 +352,18 @@ static int engine_init_display(GLEngine* engine) {
         auto info = glGetString(name);
         LOGI("OpenGL Info: %s", info);
     }
+    // if(!hasExtension("GL_OES_compressed_ETC1_RGB8_texture")){
+    //     LOGE("Not suported extension \"GL_OES_compressed_ETC1_RGB8_texture\"");
+    //     // return -1;
+    // }
     // // Initialize GL state.
     // glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
     // glEnable(GL_CULL_FACE);
     // glShadeModel(GL_SMOOTH);
     // glDisable(GL_DEPTH_TEST);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glViewport(0, 0, w, h);
     engine->program = create_program(engine, &vertex_shader_source, &fragment_shader_source);
 
@@ -334,7 +394,7 @@ static void engine_draw_frame(GLEngine* engine) {
     glEnableVertexAttribArray(engine->attr_uv);
     // glEnableVertexAttribArray(engine->attr_color);
 
-    draw_texture(engine);
+    draw_spriteuvmatrix(engine);
     
 
     eglSwapBuffers(engine->display, engine->surface);
