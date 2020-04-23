@@ -9,6 +9,7 @@
 #include <android/log.h>
 #include <android_native_app_glue.h>
 
+#include "Matrix.h"
 
 /**
  * Our saved state data.
@@ -44,12 +45,17 @@ public:
     GLint attr_uv;
     GLint unif_texture;
     GLuint texture_id;
+    GLint unif_uv;
     GLint unif_color;
     GLint unif_pos;
+    GLint unif_lookat;
+    GLint unif_projection;
+    GLint unif_wlp;
     GLint unif_translate;
     GLint unif_rotate;
     GLint unif_scale;
     GLfloat rotate;
+    vec3 cameraPos;
     int32_t width;
     int32_t height;
     struct saved_state state;

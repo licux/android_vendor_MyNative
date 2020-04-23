@@ -45,34 +45,46 @@
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "native-activity", __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "native-activity", __VA_ARGS__))
 
-extern void draw3D_depthorder(GLEngine *engine);
-extern void draw3D_camera(GLEngine *engine);
-extern void draw3D_cube(GLEngine *engine);
-extern void draw3D_cubeindex(GLEngine *engine);
-extern void draw3D_cubeindex_degenerate(GLEngine *engine);
-extern void draw3D_rectindex_atlas(GLEngine *engine);
+extern void draw_triangle(GLEngine *engine);
+extern void draw_rectangle(GLEngine *engine);
+extern void draw_point(GLEngine *engine);
+extern void draw_qued(GLEngine *engine);
+extern void draw_move(GLEngine *engine);
+extern void draw_texture(GLEngine *engine);
+extern void draw_atlas(GLEngine *engine);
+extern void draw_matrix(GLEngine *engine);
+extern void draw_spritematrix(GLEngine *engine);
+extern void draw_spriteuvmatrix(GLEngine *engine);
 
 const GLchar *vertex_shader_source = 
+    "uniform mediump mat4 unif_translate;"
+    "uniform mediump mat4 unif_rotate;"
+    "uniform mediump mat4 unif_scale;"
+    "uniform mediump mat4 unif_matrix;"
+    "uniform mediump mat4 unif_uvmatrix;"
     "attribute mediump vec4 attr_pos;"
-    "attribute mediump vec2 attr_uv;"
+    // "attribute mediump vec2 attr_uv;"
+    "attribute mediump vec4 attr_uv;"
+    // "attribute lowp vec4 attr_color;"
+    // "varying lowp vec4 vary_color;"
+    // "uniform mediump vec2 unif_pos;"
     "varying mediump vec2 vary_uv;"
-    "uniform mediump mat4 unif_lookat;"
-    "uniform mediump mat4 unif_projection;"
-    "uniform mediump mat4 unif_wlp;"
     "void main() {"
-    // "    gl_Position = attr_pos;"
-    // "   gl_Position = unif_projection * unif_lookat * attr_pos;"
-    "   gl_Position = unif_wlp * attr_pos;"
-    "   vary_uv = attr_uv;"
+    // "    gl_Position = unif_translate * unif_rotate * unif_scale * attr_pos;"
+    "    gl_Position = unif_matrix * attr_pos;"
+    // "   gl_Position = attr_pos;"
+    // "   gl_Position.xy += unif_pos;"
+    // "   vary_color = attr_color;"
+    "   vary_uv = (unif_uvmatrix * attr_uv).xy;"
     "}";
 
 const GLchar *fragment_shader_source =
-    "uniform lowp vec4 unif_color;"
+    // "uniform lowp vec4 unif_color;"
+    // "varying lowp vec4 vary_color;"
+    "uniform sampler2D texture;"
     "varying mediump vec2 vary_uv;"
-    "uniform sampler2D unif_texture;"
     "void main() {"
-    // "   gl_FragColor = unif_color;"
-    "   gl_FragColor = texture2D(unif_texture, vary_uv);"
+    "   gl_FragColor = texture2D(texture, vary_uv);"
     "}";
 
 static GLuint load_shader(GLenum type, const char** source){
@@ -129,28 +141,33 @@ static GLuint create_program(GLEngine *engine, const char** vertex_source, const
         }
     }
 
-    {
-        engine->attr_pos = glGetAttribLocation(program, "attr_pos");
-        assert(engine->attr_pos >= 0);
-        LOGI("engine->attr_pos");
-        engine->attr_uv = glGetAttribLocation(program, "attr_uv");
-        assert(engine->attr_uv >= 0);
-        LOGI("engine->attr_uv");
-    }
+    engine->unif_translate = glGetUniformLocation(program, "unif_translate");
+    engine->unif_rotate = glGetUniformLocation(program, "unif_rotate");
+    engine->unif_scale = glGetUniformLocation(program, "unif_scale");
+    engine->rotate = 0;
+    assert(engine->unif_translate >= 0);
+    assert(engine->unif_rotate >= 0);
+    assert(engine->unif_scale >= 0);
+    engine->unif_matrix = glGetUniformLocation(program, "unif_matrix");
+    assert(engine->unif_matrix >= 0);
+    engine->unif_uvmatrix = glGetUniformLocation(program, "unif_uvmatrix");
+    assert(engine->unif_uvmatrix >= 0);
+    engine->attr_pos = glGetAttribLocation(program, "attr_pos");
+    assert(engine->attr_pos >= 0);
+    engine->attr_uv = glGetAttribLocation(program, "attr_uv");
+    assert(engine->attr_uv >= 0);
+    // engine->attr_color = glGetAttribLocation(program, "attr_color");
+    // assert(engine->attr_color >= 0);
+    // engine->unif_color = glGetUniformLocation(program, "unif_color");
+    // assert(engine->unif_color >= 0);
+    // engine->unif_pos = glGetUniformLocation(program, "unif_pos");
+    // assert(engine->unif_posr >= 0);
 
     {
-        engine->unif_texture = glGetUniformLocation(program, "unif_texture");
+        engine->unif_texture = glGetUniformLocation(program, "texture");
         assert(engine->unif_texture >= 0);
-        engine->unif_wlp = glGetUniformLocation(program, "unif_wlp");
-        assert(engine->unif_wlp >= 0);
-        engine->unif_lookat = glGetUniformLocation(program, "unif_lookat");
-        engine->unif_projection = glGetUniformLocation(program, "unif_projection");
-        engine->unif_color = glGetUniformLocation(program, "unif_color");
-        assert(engine->unif_lookat >= 0);
-        assert(engine->unif_projection >= 0);
-        assert(engine->unif_color >= 0);
     }
-    
+
     {
         glGenTextures(1, &engine->texture_id);
         assert(engine->texture_id != 0);
@@ -164,35 +181,71 @@ static GLuint create_program(GLEngine *engine, const char** vertex_source, const
 
         // Read png image
         {
-            PngImage image(engine->app->activity->assetManager, "simple-atlas.png");
-            // PngImage image(engine->app->activity->assetManager, "texture_rgb_512x512.png");
+            PngImage image(engine->app->activity->assetManager, "textureatlas.png");
             assert(image);
 
-            glBindTexture(GL_TEXTURE_2D, engine->texture_id);
             glTexImage2D(GL_TEXTURE_2D, 0, image.hasAlpha() ? GL_RGBA : GL_RGB, image.getWidth(), image.getHeight(), 0,
                 image.hasAlpha() ? GL_RGBA : GL_RGB, GL_UNSIGNED_BYTE, image.getData());
             assert(glGetError() == GL_NO_ERROR);
+        }
 
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            assert(glGetError() == GL_NO_ERROR);
+        // Read pkg imag
+        {
+            PkgImage image(engine->app->activity->assetManager, "texture_rgb_512x512.pkm");
 
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_ETC1_RGB8_OES, image.getWidth(), image.getHeight(), 0, image.getDataBytes(), image.getData());
             assert(glGetError() == GL_NO_ERROR);
         }
+
+        // Read ktx image
+        {
+            KtxImage image(engine->app->activity->assetManager, "texture_etc1_512x512.ktx");
+            int width = image.getWidth();
+            int height = image.getHeight();
+
+            for(int mipLevel = 0; mipLevel < image.getMipsLevel(); mipLevel++){
+                int image_size = image.getDataBytesTable()[mipLevel];
+                void* image_data = image.getDataTable()[mipLevel];
+                glCompressedTexImage2D(GL_TEXTURE_2D, mipLevel, image.getFormat(), width, height, 0, image_size, image_data);
+
+                width /= 2;
+                height /= 2;
+
+            }
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        assert(glGetError() == GL_NO_ERROR);
     }
-    
-    {
-        engine->rotate = 0;
-        engine->cameraPos = vec3_create(3, 1.5, -5);
-    }
+
+
+    GLfloat minmaxWidth[2] = { 0 };
+    glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, minmaxWidth);
+    const GLfloat minLineWidth = minmaxWidth[0];
+    const GLfloat maxLineWidth = minmaxWidth[1];
+    LOGI("Device Spec[%f <= width <= %f]", minLineWidth, maxLineWidth);
+    GLfloat minmaxPointSize[2] = { 0 };
+    glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, minmaxPointSize);
+    const GLfloat minPointSize = minmaxPointSize[0];
+    const GLfloat maxPointSize = minmaxPointSize[1];
+    LOGI("Device Spec[%f <= point size <= %f]", minPointSize, maxPointSize);
+    GLint vert_vectors = 0;
+    GLint frag_vectors = 0;
+    glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &vert_vectors);
+    glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &frag_vectors);
+    LOGI("MAX Uniform Vectors / Vert(%d) Frag(%d)", vert_vectors, frag_vectors);
+    GLint vary_vectors = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &vary_vectors);
+    LOGI("MAX Varying Vectors / %d", vary_vectors);
 
     return program;
 }
 
 static void term_program(GLEngine* engine){
     glUseProgram(0);
+
+    glDeleteTextures(1, &engine->texture_id);
 
     glDeleteProgram(engine->program);
     assert(glGetError() == GL_NO_ERROR);
@@ -299,10 +352,18 @@ static int engine_init_display(GLEngine* engine) {
         auto info = glGetString(name);
         LOGI("OpenGL Info: %s", info);
     }
+    // if(!hasExtension("GL_OES_compressed_ETC1_RGB8_texture")){
+    //     LOGE("Not suported extension \"GL_OES_compressed_ETC1_RGB8_texture\"");
+    //     // return -1;
+    // }
+    // // Initialize GL state.
+    // glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
+    // glEnable(GL_CULL_FACE);
+    // glShadeModel(GL_SMOOTH);
+    // glDisable(GL_DEPTH_TEST);
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_DEPTH_TEST);
     glViewport(0, 0, w, h);
     engine->program = create_program(engine, &vertex_shader_source, &fragment_shader_source);
 
@@ -318,17 +379,23 @@ static void engine_draw_frame(GLEngine* engine) {
         return;
     }
 
+    // Just fill the screen with a color.
+    // glClearColor(((float)engine->state.x)/engine->width, engine->state.angle,
+    // //              ((float)engine->state.y)/engine->height, 1);
+    // glClearColor((GLfloat)(rand() % 256) / 255.0f, (GLfloat)(rand() % 256) / 255.0f, (GLfloat)(rand() % 256) / 255.0f, 1.0f);
+    // glClear(GL_COLOR_BUFFER_BIT);
+
     glUseProgram(engine->program);
 
     glClearColor(0.0f, 1.0f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glEnableVertexAttribArray(engine->attr_pos);
     glEnableVertexAttribArray(engine->attr_uv);
     // glEnableVertexAttribArray(engine->attr_color);
 
-    draw3D_rectindex_atlas(engine);    
+    draw_spriteuvmatrix(engine);
+    
 
     eglSwapBuffers(engine->display, engine->surface);
 }

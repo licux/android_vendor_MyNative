@@ -14,6 +14,7 @@ LOCAL_SRC_FILES := \
     src/Sprite.cpp \
     src/util.cpp \
     src/drawer.cpp \
+    src/drawer3D.cpp \
     src/main.cpp \
 
 

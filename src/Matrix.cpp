@@ -1,4 +1,5 @@
 #include <math.h>
+#include <string>
 
 #include "Matrix.h"
 
@@ -20,6 +21,14 @@ vec3 vec3_normalize(const vec3 v){
 
 vec3 vec3_createNormalized(const GLfloat x, const GLfloat y, const GLfloat z){
     return vec3_normalize(vec3_create(x, y, z));
+}
+
+GLfloat vec3_dot(const vec3 v0, const vec3 v1){
+    return (v0.x * v1.x) + (v0.y * v1.y) + (v0.z * v1.z);
+}
+
+vec3 vec3_cross(const vec3 v0, const vec3 v1){
+    return vec3_create((v0.y * v1.z) - (v0.z * v1.y), (v0.z * v1.x) - (v0.x * v1.z), (v0.x * v1.y) - (v0.y * v1.x));
 }
 
 mat4 mat4_identity(){
@@ -111,6 +120,75 @@ mat4 mat4_multiply(const mat4 a, const mat4 b){
         result.m[i][3] = a.m[0][3] * b.m[i][0] + a.m[1][3] * b.m[i][1]
                        + a.m[2][3] * b.m[i][2] + a.m[3][3] * b.m[i][3];
     }
+
+    return result;
+}
+
+mat4 mat4_lookAt(const vec3 eye, const vec3 look, const vec3 up){
+    // mat4 result;
+
+    // vec3 f = vec3_normalize(vec3_create(look.x - eye.x, look.y - eye.y, look.z - eye.z));
+    // vec3 u = vec3_normalize(up);
+    // vec3 s = vec3_normalize(vec3_cross(f, u));
+    // u = vec3_cross(s, f);
+
+    // result.m[0][0] = s.x;
+    // result.m[1][0] = s.y;
+    // result.m[2][0] = s.z;
+    // result.m[0][1] = u.x;
+    // result.m[1][1] = u.y;
+    // result.m[2][1] = u.z;
+    // result.m[0][2] = -f.x;
+    // result.m[1][2] = -f.y;
+    // result.m[2][2] = -f.z;
+    // result.m[3][0] = -vec3_dot(s, eye);
+    // result.m[3][1] = -vec3_dot(u, eye);
+    // result.m[3][2] = vec3_dot(f, eye);
+    // result.m[0][3] = 0;
+    // result.m[1][3] = 0;
+    // result.m[2][3] = 0;
+    // result.m[3][3] = 1;
+
+    // return result;
+
+    mat4 result;
+
+    vec3 f = vec3_normalize(vec3_create(look.x - eye.x, look.y - eye.y, look.z - eye.z));
+    vec3 u = vec3_normalize(up);
+    vec3 s = vec3_normalize(vec3_cross(f, u));
+    u = vec3_cross(s, f);
+
+    result.m[0][0] = s.x;
+    result.m[1][0] = s.y;
+    result.m[2][0] = s.z;
+    result.m[0][1] = u.x;
+    result.m[1][1] = u.y;
+    result.m[2][1] = u.z;
+    result.m[0][2] = -f.x;
+    result.m[1][2] = -f.y;
+    result.m[2][2] = -f.z;
+    result.m[3][0] = -vec3_dot(s, eye);
+    result.m[3][1] = -vec3_dot(u, eye);
+    result.m[3][2] = vec3_dot(f, eye);
+    result.m[0][3] = 0;
+    result.m[1][3] = 0;
+    result.m[2][3] = 0;
+    result.m[3][3] = 1;
+
+    return result;
+}
+
+mat4 mat4_perspective(const GLfloat near, const GLfloat far, const GLfloat fovY_degree, const GLfloat aspect){
+    mat4 result;
+    memset(result.m, 0x00, sizeof(mat4));
+
+    const GLfloat f = (GLfloat)(1.0 / (tan(degree2radian(fovY_degree)) / 2.0));
+
+    result.m[0][0] = f / aspect;
+    result.m[1][1] = f;
+    result.m[2][2] = (far + near) / (near - far);
+    result.m[2][3] = -1;
+    result.m[3][2] = (2.0f * far * near) / (near - far);
 
     return result;
 }
